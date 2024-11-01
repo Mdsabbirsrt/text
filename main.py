@@ -1,10 +1,4 @@
-import telebot
-from telebot import types
-import random
-import stripe
-import requests
-from faker import Faker
-import os
+
 import string
 
 stripe.api_key = "sk_test_4eC39HqLyjWDarjtT1zdp7dc"
@@ -29,10 +23,10 @@ def send_welcome(message):
     global registered_user_id
     if registered_user_id is None:
         registered_user_id = message.from_user.id
-        user_credits[message.from_user.id] = 15  # Register user with 15 credits
-        bot.reply_to(message, "Welcome! You've received 15 free credits for card checking! Send me a list of cards, and I'll check them for you!")
+        user_credits[message.from_user.id] = 10  # Register user with 10 credits
+        bot.reply_to(message, "Welcome! You've received 10 free credits for card checking! Send me a list of cards, and I'll check them for you!")
     elif registered_user_id == message.from_user.id:
-        bot.reply_to(message, "Welcome back! You already have 15 credits.")
+        bot.reply_to(message, "Welcome back! You already have 10 credits.")
     else:
         bot.reply_to(message, "Sorry, only one user can register with this bot.")
 
@@ -55,47 +49,12 @@ def show_user_details(message):
     
     bot.reply_to(message, user_details)
 
-# Command to show total number of users
-@bot.message_handler(commands=['total_users'])
-def total_users(message):
-    user_id = message.from_user.id
-    if user_id != admin_id:
-        bot.reply_to(message, "You are not authorized to use this command.")
-        return
-
-    total_users_count = len(user_credits)
-    bot.reply_to(message, f"Total number of users: {total_users_count}")
-
-# Command to ban a user
-@bot.message_handler(commands=['ban'])
-def ban_user(message):
-    user_id = message.from_user.id
-    if user_id != admin_id:
-        bot.reply_to(message, "You are not authorized to use this command.")
-        return
-
-    try:
-        user_to_ban = int(message.text.split(' ')[1])  # Extract user ID to ban after the /ban command
-    except (IndexError, ValueError):
-        bot.reply_to(message, "Please provide a valid user ID to ban in the format: /ban user_id")
-        return
-
-    if user_to_ban in user_credits:
-        del user_credits[user_to_ban]  # Remove user from credits dictionary
-        if user_to_ban in premium_users:
-            premium_users.remove(user_to_ban)  # Remove from premium users if applicable
-        if user_to_ban == registered_user_id:
-            global registered_user_id
-            registered_user_id = None  # Allow a new user to register
-        bot.reply_to(message, f"User ID {user_to_ban} has been banned successfully.")
-    else:
-        bot.reply_to(message, "User ID not found.")
-
 # Command to redeem credits
 @bot.message_handler(commands=['redeem'])
 def redeem_credits(message):
     user_id = message.from_user.id
     if user_id != registered_user_id:
+        bot.reply_to(message, "You are not registered to use this bot.")
         return
 
     try:
@@ -116,6 +75,7 @@ def redeem_credits(message):
 def add_premium_user(message):
     user_id = message.from_user.id
     if user_id != registered_user_id:
+        bot.reply_to(message, "You are not registered to use this bot.")
         return
 
     premium_users.add(user_id)
@@ -128,10 +88,10 @@ def register_user(message):
     global registered_user_id
     if registered_user_id is None:
         registered_user_id = message.from_user.id
-        user_credits[message.from_user.id] = 15  # Register user with 15 credits
-        bot.reply_to(message, "You have successfully registered! You now have 15 credits for card checking.")
+        user_credits[message.from_user.id] = 10  # Register user with 10 credits
+        bot.reply_to(message, "You have successfully registered! You now have 10 credits for card checking.")
     elif registered_user_id == message.from_user.id:
-        bot.reply_to(message, "You are already registered and have 15 credits.")
+        bot.reply_to(message, "You are already registered and have 10 credits.")
     else:
         bot.reply_to(message, "Sorry, only one user can register with this bot.")
 
@@ -172,6 +132,7 @@ def start_single_card_check(message):
     global free_checks_remaining
     user_id = message.from_user.id
     if user_id != registered_user_id:
+        bot.reply_to(message, "You are not registered to use this bot.")
         return
 
     if user_credits.get(user_id, 0) < 2 and free_checks_remaining <= 0:
@@ -194,9 +155,13 @@ def start_single_card_check(message):
     else:
         user_credits[user_id] -= 2
 
+    with open("combo.txt", "wb") as w:
+        w.write(card_details.encode())
+
     # Simulate checking the card (this is a random simulation for demonstration purposes)
+    # In real-world scenarios, you should interact with an API like Stripe to check cards.
     if not validate_card_format(card_details):
-        result = f"Card: {card_details} ➜ Your card number is incorrect"
+        result = f"Card: {card_details} ➜ Your card number is incorrect ❌"
     else:
         try:
             # Split card details
@@ -219,41 +184,16 @@ def start_single_card_check(message):
                 confirm=True,
                 automatic_payment_methods={"enabled": True, "allow_redirects": "never"},
             )
-            charges = payment_intent.last_response.data
+            # Get card information (e.g., issuer and country)
             card_info = get_card_info(card_number)
-            if '"status": "succeeded"' in charges:
-                status = "Approved ✅"
-                resp = "Charged 1$🔥"
-                save_approved_card(card_info, resp)
-            elif '"cvc_check": "pass"' in charges:
-                status = "LIVE ✅"
-                resp = "CVV Live"
-                save_approved_card(card_info, resp)
-            elif "generic_decline" in charges:
-                status = "Declined ❌"
-                resp = "Generic Decline"
-            elif "insufficient_funds" in charges:
-                status = "LIVE ✅"
-                resp = "Insufficient funds 💰"
-                save_approved_card(card_info, resp)
-            elif "fraudulent" in charges:
-                status = "Declined ❌"
-                resp = "Fraudulent"
-            elif "do_not_honor" in charges:
-                status = "Declined ❌"
-                resp = "Do Not Honor"
-            elif "authentication_required" in charges or "card_error_authentication_required" in charges:
-                status = "LIVE ✅"
-                resp = "3D Secured"
-            else:
-                status = "Declined ❌"
-                resp = "Declined for an unknown reason"
+            issuer = card_info.get("issuer", "Unknown Issuer")
+            country = card_info.get("country", "Unknown Country")
 
             result = (
-                f"Card: {card_details} ➜ {status} ({resp})\n"
+                f"Card: {card_details} ➜ Charge Successful ✅ (Amount: $1)\n"
                 f"𝗜𝗻𝗳𝗼:\n"
-                f"𝐈𝐬𝐬𝐮𝐞𝐫: {card_info.get('issuer', 'Unknown Issuer')}\n"
-                f"𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {card_info.get('country', 'Unknown Country')}\n"
+                f"𝐈𝐬𝐬𝐮𝐞𝐫: {issuer}\n"
+                f"𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {country}\n"
                 f"🌍 𝗖𝗼𝘂𝗻𝘁𝗿𝘆: {card_info.get('country_name', 'N/A')} {card_info.get('country_flag', 'N/A')}\n"
             )
         except stripe.error.CardError as e:
@@ -288,11 +228,31 @@ def start_card_check_live(message):
     global free_checks_remaining
     user_id = message.from_user.id
     if user_id != registered_user_id:
+        bot.reply_to(message, "You are not registered to use this bot.")
         return
 
     if user_credits.get(user_id, 0) < 2 and free_checks_remaining <= 0:
         bot.reply_to(message, "You don't have enough credits. Each card check costs 2 credits. Please register or invite friends to get more credits.")
         return
+
+    try:
+        card_details = message.text.split(' ')[1]  # Extract the card details after the /chkk command
+    except IndexError:
+        bot.reply_to(message, "Please provide card details after the /chkk command in the format: /chkk card_number|exp_month|exp_year|cvc")
+        return
+
+    bot.reply_to(message, f"Starting live card check for: {card_details}...")
+
+    # Deduct credits or use free checks
+    if user_id in premium_users:
+        pass  # Premium users do not lose credits
+    elif free_checks_remaining > 0:
+        free_checks_remaining -= 1
+    else:
+        user_credits[user_id] -= 2
+
+    with open("combo.txt", "wb") as w:
+        w.write(card_details.encode())
 
     # Simulate checking the card (this is a random simulation for demonstration purposes)
     live_card = random.choice([True, False])
@@ -340,11 +300,6 @@ def get_card_info(card_number):
         "country_name": "Mockland",
         "country_flag": "🌍"
     }
-
-# Helper function to save approved card details (mocked for now)
-def save_approved_card(card_info, response):
-    # This function should save card details somewhere for reference
-    print(f"Saving approved card: {card_info}, Response: {response}")
 
 # Polling to keep the bot running
 bot.polling()

@@ -1,5 +1,5 @@
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram.ext import Updater, CommandHandler, CallbackContext, ApplicationBuilder
 
 # Replace 'YOUR_TOKEN' with your actual bot token
 token = '7819656172:AAEx160ouF8RmdDOdJO_XnRswUcSALu46to'
@@ -48,20 +48,15 @@ def chk(update: Update, context: CallbackContext) -> None:
     update.message.reply_text(message)
 
 def main():
-    updater = Updater(token)
-
-    dispatcher = updater.dispatcher
+    application = ApplicationBuilder().token(token).build()
 
     # Command handlers
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(CommandHandler("status", status))
-    dispatcher.add_handler(CommandHandler("chk", chk))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("status", status))
+    application.add_handler(CommandHandler("chk", chk))
 
     # Start the Bot
-    updater.start_polling()
-
-    # Run the bot until you send a signal to stop
-    updater.idle()
+    application.run_polling()
 
 if __name__ == '__main__':
     main()

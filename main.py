@@ -1,15 +1,31 @@
-
+import logging
+import random
+import stripe
+import requests
+from faker import Faker
+import os
 import string
+from telegram import Update
+from telegram.ext import Updater, CommandHandler, CallbackContext
+import telebot
+from telebot import types
 
+# Enable logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Stripe configuration
 stripe.api_key = "sk_test_4eC39HqLyjWDarjtT1zdp7dc"
-
 customer = stripe.Customer.create()
 print(customer.last_response.request_id)
 
+# Telegram bot configuration
 API_TOKEN = '7819656172:AAEx160ouF8RmdDOdJO_XnRswUcSALu46to'
 bot = telebot.TeleBot(API_TOKEN)
 fake = Faker()
 
+# User management data
 user_credits = {}  # Store user credits
 admin_id = 8143679178  # Admin user ID
 registered_user_id = None  # Store only one user ID
@@ -17,289 +33,70 @@ free_checks_remaining = 10  # Free check limit
 premium_users = set()  # Store premium user IDs
 redeem_codes = {}  # Store redeem codes
 
-# Command to start the bot
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    global registered_user_id
-    if registered_user_id is None:
-        registered_user_id = message.from_user.id
-        user_credits[message.from_user.id] = 10  # Register user with 10 credits
-        bot.reply_to(message, "Welcome! You've received 10 free credits for card checking! Send me a list of cards, and I'll check them for you!")
-    elif registered_user_id == message.from_user.id:
-        bot.reply_to(message, "Welcome back! You already have 10 credits.")
-    else:
-        bot.reply_to(message, "Sorry, only one user can register with this bot.")
+def check_cards():
+    # This is a mock function for checking cards; replace this with your actual logic
+    # Sample data for demo purposes
+    total_cards = 100
+    charge_cards = 10
+    live_cards = 0
+    dead_cards = total_cards - charge_cards - live_cards
+    return total_cards, charge_cards, live_cards, dead_cards
 
-# Command for admin to show user details
-@bot.message_handler(commands=['admin_show_users'])
-def show_user_details(message):
-    user_id = message.from_user.id
-    if user_id != admin_id:
-        bot.reply_to(message, "You are not authorized to use this command.")
-        return
 
-    if not user_credits:
-        bot.reply_to(message, "No users registered yet.")
-        return
-
-    user_details = "User Details:\n"
-    for user, credits in user_credits.items():
-        premium_status = "Premium User" if user in premium_users else "Standard User"
-        user_details += f"User ID: {user}, Credits: {credits}, Status: {premium_status}\n"
+def start(update: Update, context: CallbackContext) -> None:
+    """Sends a message with card statuses."""
+    total, charge, live, dead = check_cards()
     
-    bot.reply_to(message, user_details)
+    # Calculate percentages
+    total_percentage = 100
+    charge_percentage = (charge / total) * 100
+    live_percentage = (live / total) * 100
+    dead_percentage = (dead / total) * 100
 
-# Command to redeem credits
-@bot.message_handler(commands=['redeem'])
-def redeem_credits(message):
-    user_id = message.from_user.id
-    if user_id != registered_user_id:
-        bot.reply_to(message, "You are not registered to use this bot.")
-        return
+    # Formatting the message
+    message = (
+        f"\U0001F4CB *Total cards* ➞ {total} ({total_percentage:.2f}%)\n"
+        f"\U0001F4B3 *Charge Cards* ➞ {charge} ({charge_percentage:.2f}%)\n"
+        f"\U0001F4B5 *Live Cards* ➞ {live} ({live_percentage:.2f}%)\n"
+        f"\u2620 *Dead Cards* ➞ {dead} ({dead_percentage:.2f}%)\n"
+        f"\n\U0001F6AA *Status* ➞ Checked All \u2705\n\n"
+        f"*Result* ➞ No Live Cards Found\n"
+        f"\n*Checked by* ➞ @{update.effective_user.username if update.effective_user.username else 'unknown'}"
+    )
 
-    try:
-        code = message.text.split(' ')[1]  # Extract the redeem code after the /redeem command
-    except IndexError:
-        bot.reply_to(message, "Please provide a redeem code after the /redeem command in the format: /redeem code")
-        return
-
-    if code in redeem_codes and not redeem_codes[code]['used']:
-        user_credits[user_id] += redeem_codes[code]['credits']
-        redeem_codes[code]['used'] = True
-        bot.reply_to(message, f"You have successfully redeemed {redeem_codes[code]['credits']} credits! You now have {user_credits[user_id]} credits.")
-    else:
-        bot.reply_to(message, "Invalid or already used redeem code.")
-
-# Command to add premium user
-@bot.message_handler(commands=['premium'])
-def add_premium_user(message):
-    user_id = message.from_user.id
-    if user_id != registered_user_id:
-        bot.reply_to(message, "You are not registered to use this bot.")
-        return
-
-    premium_users.add(user_id)
-    user_credits[user_id] = 1000  # Set 1000 credits for premium users
-    bot.reply_to(message, "Congratulations! You are now a premium user with 1000 credits.")
+    # Send the message
+    context.bot.send_message(chat_id=update.effective_chat.id, text=message, parse_mode='Markdown')
 
 # Command to register a user manually
-@bot.message_handler(commands=['register'])
-def register_user(message):
+def register_user(update: Update, context: CallbackContext) -> None:
     global registered_user_id
+    user_id = update.effective_user.id
     if registered_user_id is None:
-        registered_user_id = message.from_user.id
-        user_credits[message.from_user.id] = 10  # Register user with 10 credits
-        bot.reply_to(message, "You have successfully registered! You now have 10 credits for card checking.")
-    elif registered_user_id == message.from_user.id:
-        bot.reply_to(message, "You are already registered and have 10 credits.")
+        registered_user_id = user_id
+        user_credits[user_id] = 15  # Register user with 15 credits
+        context.bot.send_message(chat_id=update.effective_chat.id, text="You have successfully registered! You now have 15 credits for card checking.")
+    elif registered_user_id == user_id:
+        context.bot.send_message(chat_id=update.effective_chat.id, text="You are already registered and have 15 credits.")
     else:
-        bot.reply_to(message, "Sorry, only one user can register with this bot.")
+        context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, only one user can register with this bot.")
 
-# Command to create a redeem code (admin only)
-@bot.message_handler(commands=['mack'])
-def create_redeem_code(message):
-    user_id = message.from_user.id
-    if user_id != admin_id:
-        bot.reply_to(message, "You are not authorized to use this command.")
-        return
+def main() -> None:
+    """Start the bot."""
+    # Replace 'YOUR_TOKEN' with your actual bot token
+    updater = Updater("YOUR_TOKEN")
 
-    # Generate a random redeem code
-    code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
-    credits = 10  # Set default credits for the redeem code
-    redeem_codes[code] = {'credits': credits, 'used': False}
-    bot.reply_to(message, f"Redeem code created: {code} (Credits: {credits})")
+    dispatcher = updater.dispatcher
 
-# Command to set a new Stripe secret key
-@bot.message_handler(commands=['sk'])
-def set_stripe_key(message):
-    user_id = message.from_user.id
-    if user_id != admin_id:
-        bot.reply_to(message, "You are not authorized to use this command.")
-        return
+    # on different commands - answer in Telegram
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(CommandHandler("register", register_user))
 
-    try:
-        new_sk_key = message.text.split(' ')[1]  # Extract the new secret key after the /sk command
-    except IndexError:
-        bot.reply_to(message, "Please provide a new Stripe secret key after the /sk command in the format: /sk sk_test_xxx")
-        return
+    # Start the Bot
+    updater.start_polling()
 
-    stripe.api_key = new_sk_key
-    bot.reply_to(message, "Stripe secret key has been updated successfully.")
+    # Run the bot until you press Ctrl-C or the process receives SIGINT, SIGTERM or SIGABRT
+    updater.idle()
 
-# Command to start checking a specific card
-@bot.message_handler(commands=['chk'])
-def start_single_card_check(message):
-    global free_checks_remaining
-    user_id = message.from_user.id
-    if user_id != registered_user_id:
-        bot.reply_to(message, "You are not registered to use this bot.")
-        return
 
-    if user_credits.get(user_id, 0) < 2 and free_checks_remaining <= 0:
-        bot.reply_to(message, "You don't have enough credits. Each card check costs 2 credits. Please register or invite friends to get more credits.")
-        return
-
-    try:
-        card_details = message.text.split(' ')[1]  # Extract the card details after the /chk command
-    except IndexError:
-        bot.reply_to(message, "Please provide card details after the /chk command in the format: /chk card_number|exp_month|exp_year|cvc")
-        return
-    
-    bot.reply_to(message, f"Starting to check card: {card_details}...")
-
-    # Deduct credits or use free checks
-    if user_id in premium_users:
-        pass  # Premium users do not lose credits
-    elif free_checks_remaining > 0:
-        free_checks_remaining -= 1
-    else:
-        user_credits[user_id] -= 2
-
-    with open("combo.txt", "wb") as w:
-        w.write(card_details.encode())
-
-    # Simulate checking the card (this is a random simulation for demonstration purposes)
-    # In real-world scenarios, you should interact with an API like Stripe to check cards.
-    if not validate_card_format(card_details):
-        result = f"Card: {card_details} ➜ Your card number is incorrect ❌"
-    else:
-        try:
-            # Split card details
-            card_number, exp_month, exp_year, cvc = card_details.split('|')
-            # Create a payment method using Stripe API
-            payment_method = stripe.PaymentMethod.create(
-                type="card",
-                card={
-                    "number": card_number,
-                    "exp_month": int(exp_month),
-                    "exp_year": int(exp_year),
-                    "cvc": cvc,
-                },
-            )
-            # Charge the card $1
-            payment_intent = stripe.PaymentIntent.create(
-                amount=100,  # $1.00 in cents
-                currency="usd",
-                payment_method=payment_method.id,
-                confirm=True,
-                automatic_payment_methods={"enabled": True, "allow_redirects": "never"},
-            )
-            # Get card information (e.g., issuer and country)
-            card_info = get_card_info(card_number)
-            issuer = card_info.get("issuer", "Unknown Issuer")
-            country = card_info.get("country", "Unknown Country")
-
-            result = (
-                f"Card: {card_details} ➜ Charge Successful ✅ (Amount: $1)\n"
-                f"𝗜𝗻𝗳𝗼:\n"
-                f"𝐈𝐬𝐬𝐮𝐞𝐫: {issuer}\n"
-                f"𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {country}\n"
-                f"🌍 𝗖𝗼𝘂𝗻𝘁𝗿𝘆: {card_info.get('country_name', 'N/A')} {card_info.get('country_flag', 'N/A')}\n"
-            )
-        except stripe.error.CardError as e:
-            # Handle decline error from Stripe
-            markup = types.InlineKeyboardMarkup()
-            decline_button = types.InlineKeyboardButton(text="Card Declined ❌", callback_data="card_declined")
-            markup.add(decline_button)
-            bot.reply_to(message, f"Card: {card_number} ➜ Declined ❌", reply_markup=markup)
-            return
-        except stripe.error.StripeError as e:
-            # Handle other Stripe errors
-            markup = types.InlineKeyboardMarkup()
-            decline_button = types.InlineKeyboardButton(text="Card Declined ❌", callback_data="card_declined")
-            markup.add(decline_button)
-            bot.reply_to(message, f"Card: {card_number} ➜ Declined ❌", reply_markup=markup)
-            return
-        except Exception as e:
-            # Handle any other exceptions
-            result = f"Card: {card_details} ➜ An unexpected error occurred ❌ ({str(e)})"
-
-    # Send the result back to the user
-    if result:
-        markup = types.InlineKeyboardMarkup()
-        charge_button = types.InlineKeyboardButton(text="Total Charge: $1 ✅", callback_data="charge_success")
-        decline_button = types.InlineKeyboardButton(text="Total Declined ❌", callback_data="card_declined")
-        markup.add(charge_button, decline_button)
-        bot.reply_to(message, result, reply_markup=markup)
-
-# Command to start card checking with /chkk
-@bot.message_handler(commands=['chkk'])
-def start_card_check_live(message):
-    global free_checks_remaining
-    user_id = message.from_user.id
-    if user_id != registered_user_id:
-        bot.reply_to(message, "You are not registered to use this bot.")
-        return
-
-    if user_credits.get(user_id, 0) < 2 and free_checks_remaining <= 0:
-        bot.reply_to(message, "You don't have enough credits. Each card check costs 2 credits. Please register or invite friends to get more credits.")
-        return
-
-    try:
-        card_details = message.text.split(' ')[1]  # Extract the card details after the /chkk command
-    except IndexError:
-        bot.reply_to(message, "Please provide card details after the /chkk command in the format: /chkk card_number|exp_month|exp_year|cvc")
-        return
-
-    bot.reply_to(message, f"Starting live card check for: {card_details}...")
-
-    # Deduct credits or use free checks
-    if user_id in premium_users:
-        pass  # Premium users do not lose credits
-    elif free_checks_remaining > 0:
-        free_checks_remaining -= 1
-    else:
-        user_credits[user_id] -= 2
-
-    with open("combo.txt", "wb") as w:
-        w.write(card_details.encode())
-
-    # Simulate checking the card (this is a random simulation for demonstration purposes)
-    live_card = random.choice([True, False])
-    if live_card:
-        # Extract card number to get card information
-        card_number, exp_month, exp_year, cvc = card_details.split('|')
-        card_info = get_card_info(card_number)
-        issuer = card_info.get("issuer", "Unknown Issuer")
-        country = card_info.get("country", "Unknown Country")
-
-        result = (
-            f"Card: {card_details} ➜ Card is Live ✅\n"
-            f"𝗜𝗻𝗳𝗼:\n"
-            f"𝐈𝐬𝐬𝐮𝐞𝐫: {issuer}\n"
-            f"𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {country}\n"
-            f"🌍 𝗖𝗼𝘂𝗻𝘁𝗿𝘆: {card_info.get('country_name', 'N/A')} {card_info.get('country_flag', 'N/A')}\n"
-        )
-    else:
-        result = None
-        # Only show a Declined button
-        markup = types.InlineKeyboardMarkup()
-        decline_button = types.InlineKeyboardButton(text="Card Declined ❌", callback_data="card_declined")
-        markup.add(decline_button)
-        bot.reply_to(message, f"Card: {card_details} ➜ Declined ❌", reply_markup=markup)
-        return
-
-    # Send the result back to the user
-    if result:
-        markup = types.InlineKeyboardMarkup()
-        live_button = types.InlineKeyboardButton(text="Card Live ✅", callback_data="card_live")
-        decline_button = types.InlineKeyboardButton(text="Total Declined ❌", callback_data="card_declined")
-        markup.add(live_button, decline_button)
-        bot.reply_to(message, result, reply_markup=markup)
-
-# Helper function to validate card format
-def validate_card_format(card):
-    parts = card.split('|')
-    return len(parts) == 4 and all(part.isdigit() for part in parts[:3]) and len(parts[0]) == 16
-
-# Helper function to get card information (mocked for now)
-def get_card_info(card_number):
-    return {
-        "issuer": "Mock Bank",
-        "country": "Mock Country",
-        "country_name": "Mockland",
-        "country_flag": "🌍"
-    }
-
-# Polling to keep the bot running
-bot.polling()
+if __name__ == '__main__':
+    main()
